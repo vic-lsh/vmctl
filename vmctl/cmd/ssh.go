@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -58,6 +59,23 @@ func runSSH(cmd *cobra.Command, args []string) error {
 
 	if ip == "" {
 		return fmt.Errorf("could not get IP for '%s'. Try again once it finishes booting", name)
+	}
+
+	// Wait for SSH port to be reachable
+	fmt.Printf("==> Waiting for SSH on %s...\n", ip)
+	sshReady := false
+	for i := 1; i <= 20; i++ {
+		conn, err := net.DialTimeout("tcp", ip+":22", 2*time.Second)
+		if err == nil {
+			conn.Close()
+			sshReady = true
+			break
+		}
+		fmt.Printf("    Waiting for SSH... (%d/20)\n", i)
+		time.Sleep(3 * time.Second)
+	}
+	if !sshReady {
+		return fmt.Errorf("SSH not reachable on %s:22. The VM may still be booting — try again shortly", ip)
 	}
 
 	fmt.Printf("==> Connecting to %s@%s\n", username, ip)
