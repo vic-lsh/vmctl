@@ -1,6 +1,7 @@
 # VM Management
 
-Scripts for provisioning per-user KVM/QEMU VMs on this host.
+`vmctl` is a CLI tool for provisioning per-user KVM/QEMU VMs on this host, with cloud-init and 9p shared storage.
+
 ---
 
 ## One-time Setup
@@ -12,28 +13,51 @@ wget -P /mnt/nvme1/vms/base-images/ \
   https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img
 ```
 
+## Install
+
+```bash
+cd vmctl && go build -o vmctl .
+sudo cp vmctl /usr/local/bin/
+```
+
+## Configuration (optional)
+
+Create `~/.config/vmctl/config.yaml` to override defaults:
+
+```yaml
+base_image: /mnt/nvme1/vms/base-images/jammy-server-cloudimg-amd64.img
+network: default
+defaults:
+  user: ubuntu
+  vcpus: 8
+  ram_mb: 16384
+  disk_gb: 100
+```
+
+CLI flags always take precedence over config values. If no config file exists, built-in defaults (matching the values above) are used.
+
 ---
 
-## Scripts
+## Commands
 
-### `create-vm.sh` — Create a new VM
+### `vmctl create` — Create a new VM
 
 ```
-sudo ./create-vm.sh -n <vm-name> -p <vm-path> -k <ssh-pubkey-file> [options]
+sudo vmctl create -n <vm-name> -p <vm-path> -k <ssh-pubkey-file> [options]
 
 Required:
-  -n <name>       VM name (e.g. alice-vm)
-  -p <path>       Directory for this VM's files (image, seed ISO, shared data)
-  -k <keyfile>    Path to user's SSH public key file
+  -n, --name <name>       VM name (e.g. alice-vm)
+  -p, --path <path>       Directory for this VM's files (image, seed ISO, shared data)
+  -k, --key <keyfile>     Path to user's SSH public key file
 
 Options:
-  -u <username>   Username inside VM (default: ubuntu)
-  -c <vcpus>      Number of vCPUs (default: 8)
-  -m <ram_mb>     RAM in MB (default: 16384)
-  -d <disk_gb>    Disk size in GB (default: 100)
+  -u, --user <username>   Username inside VM (default: ubuntu)
+  -c, --vcpus <vcpus>     Number of vCPUs (default: 8)
+  -m, --memory <ram_mb>   RAM in MB (default: 16384)
+  -d, --disk <disk_gb>    Disk size in GB (default: 100)
 ```
 
-The script creates the following layout under `<path>`:
+The command creates the following layout under `<path>`:
 
 ```
 <path>/<name>.qcow2     VM disk image
@@ -47,70 +71,70 @@ Both the host user and the VM user can read and write to `<path>/data/`.
 
 ```bash
 # Basic VM
-sudo ./create-vm.sh -n alice-vm -p /home/alice/my-vm -k /home/alice/.ssh/id_rsa.pub
+sudo vmctl create -n alice-vm -p /home/alice/my-vm -k /home/alice/.ssh/id_rsa.pub
 
 # Custom resources
-sudo ./create-vm.sh -n alice-vm -p /home/alice/my-vm -k /home/alice/.ssh/id_rsa.pub -c 4 -m 8192 -d 200
+sudo vmctl create -n alice-vm -p /home/alice/my-vm -k /home/alice/.ssh/id_rsa.pub -c 4 -m 8192 -d 200
 ```
 
 After creation, connect with:
 
 ```bash
-./ssh-vm.sh /home/alice/my-vm
+vmctl ssh /home/alice/my-vm
 
 # Extra ssh args are forwarded:
-./ssh-vm.sh /home/alice/my-vm -L 8080:localhost:8080
+vmctl ssh /home/alice/my-vm -- -L 8080:localhost:8080
 ```
 
 From a remote machine, jump through the host:
 
 ```bash
-ssh -J your_user@spokane1 -t your_user@spokane1 ./vms/ssh-vm.sh /home/alice/my-vm
+ssh -J your_user@spokane1 -t your_user@spokane1 vmctl ssh /home/alice/my-vm
 ```
 
 ---
 
-### `ssh-vm.sh` — SSH into a VM by its path
+### `vmctl ssh` — SSH into a VM by its path
 
 ```bash
-./ssh-vm.sh <vm-path> [ssh-args...]
+vmctl ssh <vm-path> [-- ssh-args...]
 ```
 
-Reads the VM name and username from `<vm-path>/.vm` (written by `create-vm.sh`), looks up the IP via `virsh`, and connects. Polls for the IP for up to 30 seconds in case the VM is still booting.
+Reads the VM name and username from `<vm-path>/.vm` (written by `vmctl create`), looks up the IP via `virsh`, and connects. Polls for the IP for up to 30 seconds in case the VM is still booting.
 
 ---
 
-### `add-share.sh` — Mount a host directory into an existing VM
+### `vmctl add-share` — Mount a host directory into an existing VM
 
 Shuts down the VM, attaches the share, and restarts it.
 
 ```
-sudo ./add-share.sh -n <vm-name> -s <host_dir> [options]
+sudo vmctl add-share -n <vm-name> -s <host_dir> [options]
 
 Required:
-  -n <name>       VM name
-  -s <host_dir>   Host directory to share
+  -n, --name <name>       VM name
+  -s, --share <host_dir>  Host directory to share
 
 Options:
-  -i <vm-ip>      VM IP — if provided, auto-configures /etc/fstab inside VM
-  -u <username>   VM username for SSH (default: ubuntu)
-  -t <tag>        Mount tag name (default: hostshare); use different tags for multiple shares
+  -i, --ip <vm-ip>        VM IP — if provided, auto-configures /etc/fstab inside VM
+  -u, --user <username>   VM username for SSH (default: ubuntu)
+  -t, --tag <tag>         Mount tag name (default: hostshare); use different tags for multiple shares
 ```
 
 **Examples:**
 
 ```bash
 # Attach share; prints manual mount instructions
-sudo ./add-share.sh -n alice-vm -s /mnt/nvme1/alice
+sudo vmctl add-share -n alice-vm -s /mnt/nvme1/alice
 
 # Attach and auto-configure fstab inside VM
-sudo ./add-share.sh -n alice-vm -s /mnt/nvme1/alice -i 192.168.122.10
+sudo vmctl add-share -n alice-vm -s /mnt/nvme1/alice -i 192.168.122.10
 
 # Second share with a different tag
-sudo ./add-share.sh -n alice-vm -s /mnt/nvme1/datasets -t datasets
+sudo vmctl add-share -n alice-vm -s /mnt/nvme1/datasets -t datasets
 ```
 
-If `-i` is not provided, run these inside the VM to mount manually:
+If `--ip` is not provided, run these inside the VM to mount manually:
 
 ```bash
 sudo mkdir -p /mnt/host
@@ -122,16 +146,16 @@ echo 'hostshare /mnt/host 9p trans=virtio,version=9p2000.L,rw,_netdev,nofail 0 0
 
 ---
 
-### `delete-vm.sh` — Delete a VM and its files
+### `vmctl delete` — Delete a VM and its files
 
 ```bash
-sudo ./delete-vm.sh <vm-name> <vm-path>
+sudo vmctl delete <vm-name> <vm-path>
 ```
 
 Stops the VM, undefines it from libvirt, and removes the disk image and seed ISO from `<vm-path>`. The `<vm-path>/data/` directory is left intact — remove it manually if no longer needed.
 
 ```bash
-sudo ./delete-vm.sh alice-vm /home/alice/my-vm
+sudo vmctl delete alice-vm /home/alice/my-vm
 ```
 
 ---
@@ -166,3 +190,9 @@ sudo resize2fs /dev/vda1
 ```
 
 > Disks can only be grown, not shrunk.
+
+---
+
+## Legacy
+
+The original bash scripts (`create-vm.sh`, `delete-vm.sh`, `ssh-vm.sh`, `add-share.sh`) are in the `legacy/` directory. They are deprecated and will be removed in a future cleanup.
