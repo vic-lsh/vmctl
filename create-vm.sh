@@ -1,12 +1,11 @@
 #!/bin/bash
 # create-vm.sh - Provision a new KVM VM for a user
-# Usage: ./create-vm.sh -n <name> -k <ssh-pubkey-file> [-u username] [-c vcpus] [-m ram_mb] [-d disk_gb] [-s host_dir]
+# Usage: ./create-vm.sh -n <name> -p <vm-path> -k <ssh-pubkey-file> [options]
 
 set -euo pipefail
 
 # --- Paths ---
-VM_DIR="/mnt/nvme1/vms"
-BASE_IMAGE="$VM_DIR/base-images/jammy-server-cloudimg-amd64.img"
+BASE_IMAGE="/mnt/nvme1/vms/base-images/jammy-server-cloudimg-amd64.img"
 
 # --- Defaults ---
 DEFAULT_USER="ubuntu"
@@ -17,10 +16,11 @@ NETWORK="default"
 
 usage() {
     cat <<EOF
-Usage: $0 -n <vm-name> -k <ssh-pubkey-file> [options]
+Usage: $0 -n <vm-name> -p <vm-path> -k <ssh-pubkey-file> [options]
 
 Required:
   -n <name>       VM name (e.g. alice-vm)
+  -p <path>       Directory for this VM's files (image, seed ISO, shared data)
   -k <keyfile>    Path to SSH public key file
 
 Options:
@@ -28,47 +28,56 @@ Options:
   -c <vcpus>      Number of vCPUs (default: $DEFAULT_VCPUS)
   -m <ram_mb>     RAM in MB (default: $DEFAULT_RAM)
   -d <disk_gb>    Disk size in GB (default: $DEFAULT_DISK)
-  -s <host_dir>   Host directory to mount inside VM at /mnt/host
   -h              Show this help
 
+Layout created under <path>:
+  <path>/<name>.qcow2     VM disk image
+  <path>/<name>-seed.iso  Cloud-init seed ISO
+  <path>/data/            Shared directory (mounted at /mnt/host inside VM)
+
+Both the host user and the VM user can read and write to <path>/data/.
+
 Example:
-  $0 -n alice-vm -k /home/alice/.ssh/id_rsa.pub -c 4 -m 8192 -d 50
-  $0 -n alice-vm -k /home/alice/.ssh/id_rsa.pub -s /mnt/nvme1/alice
+  $0 -n alice-vm -p /home/alice/my-vm -k /home/alice/.ssh/id_rsa.pub
+  $0 -n alice-vm -p /home/alice/my-vm -k /home/alice/.ssh/id_rsa.pub -c 4 -m 8192 -d 50
 EOF
     exit 1
 }
 
 NAME=""
+VM_PATH=""
 KEYFILE=""
 USERNAME="$DEFAULT_USER"
 VCPUS=$DEFAULT_VCPUS
 RAM=$DEFAULT_RAM
 DISK=$DEFAULT_DISK
-SHARE_DIR=""
 
-while getopts "n:k:u:c:m:d:s:h" opt; do
+while getopts "n:p:k:u:c:m:d:h" opt; do
     case $opt in
         n) NAME="$OPTARG" ;;
+        p) VM_PATH="$OPTARG" ;;
         k) KEYFILE="$OPTARG" ;;
         u) USERNAME="$OPTARG" ;;
         c) VCPUS="$OPTARG" ;;
         m) RAM="$OPTARG" ;;
         d) DISK="$OPTARG" ;;
-        s) SHARE_DIR="$OPTARG" ;;
         h) usage ;;
         *) usage ;;
     esac
 done
 
 # Validate inputs
-[[ -z "$NAME" || -z "$KEYFILE" ]] && { echo "Error: -n and -k are required."; usage; }
-[[ ! -f "$KEYFILE" ]] && { echo "Error: SSH key file not found: $KEYFILE"; exit 1; }
-[[ ! -f "$BASE_IMAGE" ]] && { echo "Error: Base image not found: $BASE_IMAGE"; echo "Download it to: $BASE_IMAGE"; exit 1; }
-[[ -n "$SHARE_DIR" && ! -d "$SHARE_DIR" ]] && { echo "Error: Share directory not found: $SHARE_DIR"; exit 1; }
+[[ -z "$NAME" ]]    && { echo "Error: -n is required."; usage; }
+[[ -z "$VM_PATH" ]] && { echo "Error: -p is required."; usage; }
+[[ -z "$KEYFILE" ]] && { echo "Error: -k is required."; usage; }
+[[ ! -f "$KEYFILE" ]]    && { echo "Error: SSH key file not found: $KEYFILE"; exit 1; }
+[[ ! -f "$BASE_IMAGE" ]] && { echo "Error: Base image not found: $BASE_IMAGE"; exit 1; }
 
+VM_PATH=$(realpath -m "$VM_PATH")
 SSH_KEY_CONTENT=$(cat "$KEYFILE")
-DISK_PATH="$VM_DIR/disks/$NAME.qcow2"
-CLOUD_INIT_ISO="$VM_DIR/cloud-init/$NAME-cloud-init.iso"
+DISK_PATH="$VM_PATH/$NAME.qcow2"
+CLOUD_INIT_ISO="$VM_PATH/$NAME-seed.iso"
+DATA_DIR="$VM_PATH/data"
 
 # Check if VM already exists
 if virsh dominfo "$NAME" &>/dev/null; then
@@ -76,9 +85,27 @@ if virsh dominfo "$NAME" &>/dev/null; then
     exit 1
 fi
 
+HOST_USER="${SUDO_USER:-$(id -un)}"
+
+[[ ! -d "$VM_PATH" ]] && echo "==> Creating VM directory: $VM_PATH" && mkdir -p "$VM_PATH"
+[[ ! -d "$DATA_DIR" ]] && echo "==> Creating shared data directory: $DATA_DIR" && mkdir -p "$DATA_DIR"
+
+chown "$HOST_USER": "$VM_PATH"
+
+# The 9p share uses accessmode=mapped: all host-side I/O runs as libvirt-qemu,
+# with UID/GID stored in xattrs so the VM sees correct ownership.
+# Give libvirt-qemu ownership of the data dir and add the host user to the
+# libvirt-qemu group so they can read and write files that QEMU creates.
+# The setgid bit ensures files created by either party inherit the libvirt-qemu
+# group, keeping both sides in the same group.
+chown libvirt-qemu:libvirt-qemu "$DATA_DIR"
+chmod 2777 "$DATA_DIR"
+usermod -aG libvirt-qemu "$HOST_USER"
+
 echo "==> Creating VM: $NAME"
 echo "    User: $USERNAME | vCPUs: $VCPUS | RAM: ${RAM}MB | Disk: ${DISK}GB"
-[[ -n "$SHARE_DIR" ]] && echo "    Host share: $SHARE_DIR -> /mnt/host"
+echo "    VM path:    $VM_PATH"
+echo "    Shared dir: $DATA_DIR -> /mnt/host (inside VM)"
 
 # Create disk image (copy-on-write from base)
 echo "==> Creating disk image..."
@@ -88,22 +115,6 @@ qemu-img create -f qcow2 -b "$BASE_IMAGE" -F qcow2 "$DISK_PATH" "${DISK}G"
 echo "==> Writing cloud-init config..."
 TMPDIR=$(mktemp -d)
 trap "rm -rf $TMPDIR" EXIT
-
-# Build optional mount section for cloud-init
-MOUNT_SECTION=""
-if [[ -n "$SHARE_DIR" ]]; then
-    MOUNT_SECTION=$(cat <<'MOUNTEOF'
-
-# Mount host-shared directory
-runcmd:
-  - mkdir -p /mnt/host
-  - mount -t 9p -o trans=virtio,version=9p2000.L,rw hostshare /mnt/host
-
-mounts:
-  - [hostshare, /mnt/host, 9p, "trans=virtio,version=9p2000.L,rw,_netdev,nofail", "0", "0"]
-MOUNTEOF
-)
-fi
 
 cat > "$TMPDIR/user-data" <<EOF
 #cloud-config
@@ -127,7 +138,14 @@ growpart:
   mode: auto
   devices: ['/']
 resize_rootfs: true
-$MOUNT_SECTION
+
+# Mount the host-shared directory.
+runcmd:
+  - mkdir -p /mnt/host
+  - mount -t 9p -o trans=virtio,version=9p2000.L,rw hostshare /mnt/host
+
+mounts:
+  - [hostshare, /mnt/host, 9p, "trans=virtio,version=9p2000.L,rw,nofail", "0", "0"]
 EOF
 
 cat > "$TMPDIR/meta-data" <<EOF
@@ -143,9 +161,6 @@ genisoimage -output "$CLOUD_INIT_ISO" \
 echo "==> Launching VM..."
 VM_XML="$TMPDIR/vm.xml"
 
-SHARE_ARGS=""
-[[ -n "$SHARE_DIR" ]] && SHARE_ARGS="--filesystem $SHARE_DIR,hostshare,type=mount,accessmode=passthrough"
-
 virt-install \
     --name "$NAME" \
     --vcpus "$VCPUS" \
@@ -155,7 +170,7 @@ virt-install \
     --os-variant ubuntu22.04 \
     --network network="$NETWORK" \
     --import \
-    ${SHARE_ARGS} \
+    --filesystem "$DATA_DIR",hostshare,type=mount,accessmode=mapped \
     --print-xml > "$VM_XML"
 
 # Use the system QEMU (AppArmor-approved) instead of any custom build
@@ -164,7 +179,17 @@ sed -i 's|<emulator>.*qemu-system-x86_64</emulator>|<emulator>/usr/bin/qemu-syst
 virsh define "$VM_XML"
 virsh start "$NAME"
 
+# Save VM metadata so ssh-vm.sh can find it by path
+cat > "$VM_PATH/.vm" <<EOF
+NAME=$NAME
+USERNAME=$USERNAME
+EOF
+
 echo "==> VM '$NAME' created and booting..."
+echo "    Shared dir: $DATA_DIR  <->  /mnt/host (inside VM)"
 echo "    Check IP:   virsh domifaddr $NAME"
 echo "    Console:    virsh console $NAME  (Ctrl+] to exit)"
 echo "    SSH access: ssh -J <host_user>@$(hostname -f) $USERNAME@<vm-ip>"
+echo ""
+echo "    NOTE: '$HOST_USER' was added to the libvirt-qemu group."
+echo "          Log out and back in (or run 'newgrp libvirt-qemu') for it to take effect."

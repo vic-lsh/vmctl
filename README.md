@@ -19,10 +19,11 @@ wget -P /mnt/nvme1/vms/base-images/ \
 ### `create-vm.sh` — Create a new VM
 
 ```
-sudo ./create-vm.sh -n <vm-name> -k <ssh-pubkey-file> [options]
+sudo ./create-vm.sh -n <vm-name> -p <vm-path> -k <ssh-pubkey-file> [options]
 
 Required:
   -n <name>       VM name (e.g. alice-vm)
+  -p <path>       Directory for this VM's files (image, seed ISO, shared data)
   -k <keyfile>    Path to user's SSH public key file
 
 Options:
@@ -30,33 +31,52 @@ Options:
   -c <vcpus>      Number of vCPUs (default: 8)
   -m <ram_mb>     RAM in MB (default: 16384)
   -d <disk_gb>    Disk size in GB (default: 100)
-  -s <host_dir>   Host directory to mount inside VM at /mnt/host
 ```
+
+The script creates the following layout under `<path>`:
+
+```
+<path>/<name>.qcow2     VM disk image
+<path>/<name>-seed.iso  Cloud-init seed ISO
+<path>/data/            Shared directory — mounted at /mnt/host inside the VM
+```
+
+Both the host user and the VM user can read and write to `<path>/data/`.
 
 **Examples:**
 
 ```bash
 # Basic VM
-sudo ./create-vm.sh -n alice-vm -k /home/alice/.ssh/id_rsa.pub
+sudo ./create-vm.sh -n alice-vm -p /home/alice/my-vm -k /home/alice/.ssh/id_rsa.pub
 
 # Custom resources
-sudo ./create-vm.sh -n alice-vm -k /home/alice/.ssh/id_rsa.pub -c 4 -m 8192 -d 200
-
-# With a host directory mounted at /mnt/host inside the VM
-sudo ./create-vm.sh -n alice-vm -k /home/alice/.ssh/id_rsa.pub -s /mnt/nvme1/alice
+sudo ./create-vm.sh -n alice-vm -p /home/alice/my-vm -k /home/alice/.ssh/id_rsa.pub -c 4 -m 8192 -d 200
 ```
 
-After creation, find the VM's IP and connect:
+After creation, connect with:
 
 ```bash
-virsh domifaddr alice-vm
+./ssh-vm.sh /home/alice/my-vm
 
-# From the host:
-ssh ubuntu@192.168.122.x
-
-# From a remote machine (SSH jump through host):
-ssh -J your_user@spokane1 ubuntu@192.168.122.x
+# Extra ssh args are forwarded:
+./ssh-vm.sh /home/alice/my-vm -L 8080:localhost:8080
 ```
+
+From a remote machine, jump through the host:
+
+```bash
+ssh -J your_user@spokane1 -t your_user@spokane1 ./vms/ssh-vm.sh /home/alice/my-vm
+```
+
+---
+
+### `ssh-vm.sh` — SSH into a VM by its path
+
+```bash
+./ssh-vm.sh <vm-path> [ssh-args...]
+```
+
+Reads the VM name and username from `<vm-path>/.vm` (written by `create-vm.sh`), looks up the IP via `virsh`, and connects. Polls for the IP for up to 30 seconds in case the VM is still booting.
 
 ---
 
@@ -100,19 +120,19 @@ sudo mount -t 9p -o trans=virtio,version=9p2000.L hostshare /mnt/host
 echo 'hostshare /mnt/host 9p trans=virtio,version=9p2000.L,rw,_netdev,nofail 0 0' | sudo tee -a /etc/fstab
 ```
 
-> **Note on permissions:** Host shares use passthrough mode — the VM sees the host's UIDs/GIDs.
-> The default `ubuntu` user inside the VM has UID 1000. If the host directory is owned by a
-> different user, adjust permissions: `chown -R 1000:1000 /path/to/dir`
-
 ---
 
-### `delete-vm.sh` — Delete a VM and all its disks
+### `delete-vm.sh` — Delete a VM and its files
 
 ```bash
-sudo ./delete-vm.sh alice-vm
+sudo ./delete-vm.sh <vm-name> <vm-path>
 ```
 
-This stops the VM, undefines it from libvirt, and removes its disk image.
+Stops the VM, undefines it from libvirt, and removes the disk image and seed ISO from `<vm-path>`. The `<vm-path>/data/` directory is left intact — remove it manually if no longer needed.
+
+```bash
+sudo ./delete-vm.sh alice-vm /home/alice/my-vm
+```
 
 ---
 
@@ -134,8 +154,8 @@ virsh autostart alice-vm      # start VM automatically on host boot
 # 1. Shut down the VM
 virsh shutdown alice-vm
 
-# 2. Resize the disk image on the host
-qemu-img resize /mnt/nvme1/vms/disks/alice-vm.qcow2 +50G
+# 2. Resize the disk image on the host (path is wherever you placed the VM)
+qemu-img resize /home/alice/my-vm/alice-vm.qcow2 +50G
 
 # 3. Start and SSH into the VM, then expand the partition and filesystem
 virsh start alice-vm
