@@ -92,6 +92,25 @@ func AttachDevice(name, xmlContent string) error {
 	return err
 }
 
+// SetVCPUs sets the vCPU count in the persistent VM config (takes effect on next boot).
+func SetVCPUs(name string, count int) error {
+	if _, err := runCmd("virsh", "setvcpus", name, fmt.Sprintf("%d", count), "--config", "--maximum"); err != nil {
+		return err
+	}
+	_, err := runCmd("virsh", "setvcpus", name, fmt.Sprintf("%d", count), "--config")
+	return err
+}
+
+// SetMemory sets the memory in the persistent VM config (takes effect on next boot).
+// sizeKiB is the memory size in KiB.
+func SetMemory(name string, sizeKiB int) error {
+	if _, err := runCmd("virsh", "setmaxmem", name, fmt.Sprintf("%d", sizeKiB), "--config"); err != nil {
+		return err
+	}
+	_, err := runCmd("virsh", "setmem", name, fmt.Sprintf("%d", sizeKiB), "--config")
+	return err
+}
+
 // VirtInstallPrintXML generates the domain XML without creating the VM.
 func VirtInstallPrintXML(name string, vcpus, ramMB int, diskPath, isoPath, network, dataDir string) (string, error) {
 	return runCmd("virt-install",

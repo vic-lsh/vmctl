@@ -65,3 +65,41 @@ func LoadConfigForPath(vmPath string) (*Config, error) {
 
 	return cfg, nil
 }
+
+// SavePathConfig writes a config.yaml to the given VM path directory.
+// It loads any existing per-path config first and merges the updates.
+func SavePathConfig(vmPath string, updates *Config) error {
+	localPath := filepath.Join(vmPath, "config.yaml")
+
+	// Load existing per-path config to preserve other fields
+	existing := &Config{}
+	if data, err := os.ReadFile(localPath); err == nil {
+		yaml.Unmarshal(data, existing)
+	}
+
+	// Apply updates
+	if updates.Defaults.VCPUs != 0 {
+		existing.Defaults.VCPUs = updates.Defaults.VCPUs
+	}
+	if updates.Defaults.RAMMB != 0 {
+		existing.Defaults.RAMMB = updates.Defaults.RAMMB
+	}
+	if updates.Defaults.DiskGB != 0 {
+		existing.Defaults.DiskGB = updates.Defaults.DiskGB
+	}
+	if updates.Defaults.User != "" {
+		existing.Defaults.User = updates.Defaults.User
+	}
+	if updates.BaseImage != "" {
+		existing.BaseImage = updates.BaseImage
+	}
+	if updates.Network != "" {
+		existing.Network = updates.Network
+	}
+
+	data, err := yaml.Marshal(existing)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(localPath, data, 0644)
+}

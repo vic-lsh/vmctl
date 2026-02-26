@@ -158,6 +158,41 @@ Reads the VM name and username from `<vm-path>/.vm` (written by `vmctl create`),
 
 ---
 
+### `vmctl resize` — Resize a VM's CPU and/or memory
+
+```
+vmctl resize <vm-path> [options]
+
+Options:
+  -c, --vcpus <count>     Number of vCPUs
+  -m, --memory <gb>       Memory in GB
+```
+
+Updates the libvirt config and saves the new values to `<vm-path>/config.yaml`. A restart is required for changes to take effect.
+
+```bash
+vmctl resize ~/my-vm -c 4 -m 8
+vmctl shutdown ~/my-vm && vmctl start ~/my-vm
+```
+
+---
+
+### `vmctl shutdown` — Gracefully shut down a VM
+
+```bash
+vmctl shutdown <vm-path>
+```
+
+Sends an ACPI shutdown signal to the VM.
+
+### `vmctl start` — Start a stopped VM
+
+```bash
+vmctl start <vm-path>
+```
+
+---
+
 ### `vmctl add-share` — Mount a host directory into an existing VM
 
 Shuts down the VM, attaches the share, and restarts it.
