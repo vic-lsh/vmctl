@@ -20,9 +20,52 @@ cd vmctl && go build -o vmctl .
 sudo cp vmctl /usr/local/bin/
 ```
 
+## Quick Start
+
+```bash
+# 1. Set up a directory for the VM
+mkdir -p ~/my-vm
+
+# 2. (Optional) Add a config.yaml to override defaults (vcpus, ram, disk, etc.)
+cat > ~/my-vm/config.yaml <<'EOF'
+defaults:
+  vcpus: 4
+  ram_mb: 8192
+EOF
+
+# 3. Create the VM
+sudo vmctl create -n my-vm -p ~/my-vm -k ~/.ssh/id_rsa.pub
+
+# 4. SSH into it (waits for boot automatically)
+vmctl ssh ~/my-vm
+
+# 5. When done, delete it (preserves data/ directory)
+sudo vmctl delete my-vm ~/my-vm
+```
+
+After creation, the VM directory contains:
+
+```
+~/my-vm/
+├── config.yaml          # (optional) per-VM config overrides
+├── .vm                  # metadata used by vmctl ssh/delete
+├── my-vm.qcow2          # disk image
+├── my-vm-seed.iso        # cloud-init seed ISO
+└── data/                # shared directory, mounted at /mnt/host inside the VM
+```
+
+The `data/` directory is readable and writable from both the host and the VM, useful for transferring files without SSH/SCP.
+
+---
+
 ## Configuration (optional)
 
-Create `~/.config/vmctl/config.yaml` to override defaults:
+Config is loaded in layers, with each layer overriding the previous:
+
+1. **Built-in defaults** (shown below)
+2. **Global config:** `~/.config/vmctl/config.yaml`
+3. **Per-path config:** `<vm-path>/config.yaml`
+4. **CLI flags** (always win)
 
 ```yaml
 base_image: /mnt/nvme1/vms/base-images/jammy-server-cloudimg-amd64.img
@@ -34,7 +77,18 @@ defaults:
   disk_gb: 100
 ```
 
-CLI flags always take precedence over config values. If no config file exists, built-in defaults (matching the values above) are used.
+To give a specific VM different settings, place a `config.yaml` in its directory before running `vmctl create`:
+
+```bash
+mkdir -p ~/my-vm
+cat > ~/my-vm/config.yaml <<'EOF'
+defaults:
+  vcpus: 4
+  ram_mb: 8192
+  disk_gb: 50
+EOF
+sudo vmctl create -n my-vm -p ~/my-vm -k ~/.ssh/id_rsa.pub
+```
 
 ---
 
