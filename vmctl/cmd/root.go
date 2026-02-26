@@ -15,7 +15,8 @@ var rootCmd = &cobra.Command{
 	Short: "Manage KVM/QEMU virtual machines",
 	Long: `vmctl provisions and manages KVM/QEMU VMs with cloud-init and 9p shared storage.
 
-Configuration is loaded from ~/.config/vmctl/config.yaml (optional).
+Configuration is loaded from ~/.config/vmctl/config.yaml (global),
+then overridden by config.yaml in the VM path directory (if present).
 CLI flags override config values.`,
 }
 
@@ -39,4 +40,13 @@ func Execute() error {
 // GetConfig returns the loaded configuration for use by subcommands.
 func GetConfig() *internal.Config {
 	return cfg
+}
+
+// GetConfigForPath returns config with per-path overrides applied.
+func GetConfigForPath(vmPath string) *internal.Config {
+	pathCfg, err := internal.LoadConfigForPath(vmPath)
+	if err != nil {
+		return cfg
+	}
+	return pathCfg
 }

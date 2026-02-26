@@ -43,11 +43,12 @@ func init() {
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
-	cfg := GetConfig()
-
 	name, _ := cmd.Flags().GetString("name")
 	vmPath, _ := cmd.Flags().GetString("path")
 	keyFile, _ := cmd.Flags().GetString("key")
+
+	// Load config with per-path overrides
+	cfg := GetConfigForPath(vmPath)
 	username, _ := cmd.Flags().GetString("user")
 	vcpus, _ := cmd.Flags().GetInt("vcpus")
 	ramMB, _ := cmd.Flags().GetInt("memory")
