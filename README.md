@@ -172,6 +172,8 @@ Updates the libvirt config and saves the new values to `<vm-path>/config.yaml`. 
 
 ```bash
 vmctl resize ~/my-vm -c 4 -m 8
+
+# Restart for changes to take effect
 vmctl shutdown ~/my-vm && vmctl start ~/my-vm
 ```
 

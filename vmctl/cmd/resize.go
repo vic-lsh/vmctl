@@ -81,7 +81,7 @@ func runResize(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("==> Config saved to %s/config.yaml\n", vmPath)
 	fmt.Printf("\n    Restart the VM for changes to take effect:\n")
-	fmt.Printf("    virsh shutdown %s && virsh start %s\n", name, name)
+	fmt.Printf("    vmctl shutdown %s && vmctl start %s\n", vmPath, vmPath)
 
 	return nil
 }
