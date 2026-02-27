@@ -1,16 +1,20 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"vmctl/internal"
 
 	"github.com/spf13/cobra"
 )
+
+var stdinReader = bufio.NewReader(os.Stdin)
 
 var emulatorRegexp = regexp.MustCompile(`<emulator>.*qemu-system-x86_64</emulator>`)
 
@@ -34,8 +38,8 @@ func init() {
 	f.StringP("path", "p", "", "Directory for VM files (required)")
 	f.StringP("key", "k", "", "Path to SSH public key file (required)")
 	f.StringP("user", "u", "", "Username inside VM")
-	f.IntP("vcpus", "c", 0, "Number of vCPUs")
-	f.IntP("memory", "m", 0, "RAM in MB")
+	f.IntP("vcpus", "c", 0, "Number of vCPUs (skips interactive prompt)")
+	f.IntP("memory", "m", 0, "RAM in MB (skips interactive prompt)")
 	f.IntP("disk", "d", 0, "Disk size in GB")
 	createCmd.MarkFlagRequired("name")
 	createCmd.MarkFlagRequired("path")
@@ -58,14 +62,25 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if username == "" {
 		username = cfg.Defaults.User
 	}
-	if vcpus == 0 {
-		vcpus = cfg.Defaults.VCPUs
-	}
-	if ramMB == 0 {
-		ramMB = cfg.Defaults.RAMMB
-	}
 	if diskGB == 0 {
 		diskGB = cfg.Defaults.DiskGB
+	}
+
+	// Prompt for vCPUs and memory if not provided via flags
+	if vcpus == 0 {
+		v, err := promptInt(fmt.Sprintf("Number of vCPUs [%d]: ", cfg.Defaults.VCPUs), cfg.Defaults.VCPUs)
+		if err != nil {
+			return err
+		}
+		vcpus = v
+	}
+	if ramMB == 0 {
+		defaultGB := cfg.Defaults.RAMMB / 1024
+		gb, err := promptInt(fmt.Sprintf("Memory in GB [%d]: ", defaultGB), defaultGB)
+		if err != nil {
+			return err
+		}
+		ramMB = gb * 1024
 	}
 
 	// Validate inputs
@@ -184,4 +199,26 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	fmt.Println("          Log out and back in (or run 'newgrp libvirt-qemu') for it to take effect.")
 
 	return nil
+}
+
+// promptInt displays a prompt and reads an integer from stdin.
+// If the user presses Enter without typing a value, defaultVal is returned.
+func promptInt(prompt string, defaultVal int) (int, error) {
+	fmt.Print(prompt)
+	line, err := stdinReader.ReadString('\n')
+	if err != nil {
+		return 0, fmt.Errorf("reading input: %w", err)
+	}
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return defaultVal, nil
+	}
+	val, err := strconv.Atoi(line)
+	if err != nil {
+		return 0, fmt.Errorf("invalid number: %s", line)
+	}
+	if val <= 0 {
+		return 0, fmt.Errorf("value must be greater than 0")
+	}
+	return val, nil
 }
