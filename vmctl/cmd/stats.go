@@ -33,9 +33,9 @@ func init() {
 type vmDisplay struct {
 	Name     string
 	CPUPct   float64
+	VCPUs    int
 	MemUsage string
 	MemPct   float64
-	VCPUs    int
 }
 
 func runStats(cmd *cobra.Command, args []string) error {
@@ -128,10 +128,10 @@ func printTable(vms []vmDisplay) {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 3, ' ', 0)
-	fmt.Fprintln(w, "NAME\tCPU %\tMEM USAGE / LIMIT\tMEM %\tVCPUS")
+	fmt.Fprintln(w, "NAME\tCPU % / LIMIT\tMEM USAGE / LIMIT\tMEM %")
 	for _, vm := range vms {
-		fmt.Fprintf(w, "%s\t%.2f%%\t%s\t%.2f%%\t%d\n",
-			vm.Name, vm.CPUPct, vm.MemUsage, vm.MemPct, vm.VCPUs)
+		fmt.Fprintf(w, "%s\t%.2f%% / %d\t%s\t%.2f%%\n",
+			vm.Name, vm.CPUPct, vm.VCPUs, vm.MemUsage, vm.MemPct)
 	}
 	w.Flush()
 }
