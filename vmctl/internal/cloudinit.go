@@ -36,7 +36,7 @@ runcmd:
   - mount -t 9p -o trans=virtio,version=9p2000.L,rw hostshare /mnt/host
 
 mounts:
-  - [hostshare, /mnt/host, 9p, "trans=virtio,version=9p2000.L,rw,nofail", "0", "0"]
+  - [hostshare, /mnt/host, 9p, "trans=virtio,version=9p2000.L,rw,_netdev,nofail,x-systemd.automount", "0", "0"]
 `
 
 const metaDataTmpl = `instance-id: {{.Name}}
