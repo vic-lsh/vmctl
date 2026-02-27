@@ -43,7 +43,7 @@ func runSSH(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("VM '%s' not found", name)
 	}
 	if state != "running" {
-		return fmt.Errorf("VM '%s' is not running (state: %s)", name, state)
+		return fmt.Errorf("VM '%s' is not running (state: %s). Start it with:\n\n  vmctl start %s\n\nThen run:\n\n  vmctl ssh %s", name, state, vmPath, vmPath)
 	}
 
 	fmt.Printf("==> Looking up IP for %s...\n", name)
