@@ -7,9 +7,20 @@ import (
 	"strings"
 )
 
+const libvirtURI = "qemu:///system"
+
 var ipRegexp = regexp.MustCompile(`\d+\.\d+\.\d+\.\d+`)
 
+// withConnectURI prepends --connect qemu:///system for virsh and virt-install commands.
+func withConnectURI(name string, args []string) (string, []string) {
+	if name == "virsh" || name == "virt-install" {
+		args = append([]string{"--connect", libvirtURI}, args...)
+	}
+	return name, args
+}
+
 func runCmd(name string, args ...string) (string, error) {
+	name, args = withConnectURI(name, args)
 	cmd := exec.Command(name, args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -19,6 +30,7 @@ func runCmd(name string, args ...string) (string, error) {
 }
 
 func runCmdStdin(stdin, name string, args ...string) (string, error) {
+	name, args = withConnectURI(name, args)
 	cmd := exec.Command(name, args...)
 	cmd.Stdin = strings.NewReader(stdin)
 	out, err := cmd.CombinedOutput()
