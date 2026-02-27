@@ -179,6 +179,39 @@ vmctl shutdown ~/my-vm && vmctl start ~/my-vm
 
 ---
 
+### `vmctl stats` — Show live resource usage for running VMs
+
+```
+vmctl stats [options]
+
+Options:
+  -n, --interval <duration>   Refresh interval (default: 3s)
+      --no-stream             Print once and exit
+```
+
+Displays a live-updating table of CPU %, memory usage, and vCPU count for all running VMs (similar to `docker stats`). CPU % is computed between consecutive samples and can exceed 100% on multi-vCPU VMs.
+
+```bash
+# Live dashboard (refreshes every 3s)
+sudo vmctl stats
+
+# Refresh every 1 second
+sudo vmctl stats -n 1s
+
+# Print current snapshot and exit
+sudo vmctl stats --no-stream
+```
+
+Example output:
+
+```
+NAME            CPU %      MEM USAGE / LIMIT       MEM %      VCPUS
+dev-vm          3.21%      1.24GiB / 16.00GiB      7.75%      8
+vic-vm          12.34%     7.81GiB / 64.00GiB      12.20%     32
+```
+
+---
+
 ### `vmctl shutdown` — Gracefully shut down a VM
 
 ```bash
